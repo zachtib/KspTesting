@@ -30,13 +30,9 @@ class ScreenProcessor(
         }
         invoked = true
 
-        System.err.println("Hello from MySymbolProcessor")
         val symbolsWithAnnotation: Sequence<KSAnnotated> = resolver.getSymbolsWithAnnotation<Screen>()
         val (valid, invalid) = symbolsWithAnnotation.validateAll()
         val screenClasses = valid.filterIsInstance<KSClassDeclaration>()
-        if (screenClasses.isEmpty()) {
-            return invalid
-        }
 
         val name = "Screens"
 

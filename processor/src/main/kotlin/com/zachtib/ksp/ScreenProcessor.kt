@@ -17,7 +17,7 @@ import com.squareup.kotlinpoet.ksp.toClassName
 import com.squareup.kotlinpoet.ksp.toTypeName
 import com.squareup.kotlinpoet.ksp.writeTo
 
-class MySymbolProcessor(
+class ScreenProcessor(
     val codeGenerator: CodeGenerator,
     val options: Map<String, String>,
 ) : SymbolProcessor {

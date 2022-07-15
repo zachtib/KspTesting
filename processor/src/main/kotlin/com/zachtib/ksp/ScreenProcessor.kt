@@ -1,14 +1,11 @@
 package com.zachtib.ksp
 
-import com.google.devtools.ksp.KspExperimental
-import com.google.devtools.ksp.isAnnotationPresent
 import com.google.devtools.ksp.processing.CodeGenerator
 import com.google.devtools.ksp.processing.Dependencies
 import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.processing.SymbolProcessor
-import com.google.devtools.ksp.symbol.KSAnnotated
-import com.google.devtools.ksp.symbol.KSClassDeclaration
-import com.google.devtools.ksp.symbol.KSValueParameter
+import com.google.devtools.ksp.symbol.*
+import com.google.devtools.ksp.visitor.KSDefaultVisitor
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ksp.toClassName
 import com.squareup.kotlinpoet.ksp.toTypeName
@@ -33,14 +30,14 @@ class ScreenProcessor(
 
         val name = "Screens"
 
+        val visitor = ScreenVisitor()
+
         FileSpec.builder("com.zachtib.test", name)
             .addType(
                 TypeSpec.classBuilder(name)
-                    .addFunctions(
-                        screenClasses.map { screenClass: KSClassDeclaration ->
-                            buildScreenFun(screenClass)
-                        }
-                    )
+                    .applyForEach(screenClasses) { screenClass ->
+                        addFunction(screenClass.accept(visitor, ""))
+                    }
                     .build()
             )
             .build()
@@ -49,91 +46,59 @@ class ScreenProcessor(
         return invalid
     }
 
-    private fun buildScreenFun(screenClass: KSClassDeclaration): FunSpec {
-        val (parameters, statement) = processScreenParameter(screenClass)
-        val className = screenClass.toClassName()
-        return FunSpec.builder("navigateTo${className.simpleName}")
-            .addParameters(parameters)
-            .returns(className)
-            .addCode("return %T(", className)
-            .addCode(statement)
-            .addCode(")")
-            .build()
-    }
 
-    @OptIn(KspExperimental::class)
-    private fun processScreenParameter(screenClass: KSClassDeclaration): Pair<List<ParameterSpec>, CodeBlock> {
-        val parameters = mutableListOf<ParameterSpec>()
-        val statements = mutableListOf<CodeBlock>()
+    inner class ScreenVisitor : KSDefaultVisitor<Any, FunSpec>() {
+        override fun visitClassDeclaration(classDeclaration: KSClassDeclaration, data: Any): FunSpec {
+            val (parameters, statement) = processScreenParameters(classDeclaration)
+            val className = classDeclaration.toClassName()
+            return FunSpec.builder("navigateTo${className.simpleName}")
+                .addParameters(parameters)
+                .returns(className)
+                .addCode("return %T(", className)
+                .addCode(statement)
+                .addCode(")")
+                .build()
+        }
 
-        val constructorParameters = screenClass.primaryConstructor?.parameters
+        private fun processScreenParameters(screenClass: KSClassDeclaration): Pair<List<ParameterSpec>, CodeBlock> {
+            val parameters = mutableListOf<ParameterSpec>()
+            val statements = mutableListOf<CodeBlock>()
 
-        constructorParameters?.forEach { parameter ->
-            if (parameter.isAnnotationPresent(ScreenKey::class)) {
-                val (params, invocation) = expandScreenKeyParameter(parameter)
+            val constructorParameters = screenClass.primaryConstructor?.parameters
 
-                parameters.addAll(params)
-                statements += invocation
-            } else if (parameter.isAnnotationPresent(AcceptsScreenKey::class)) {
-                val ptype = parameter.type
-                val receiverClass = ptype.resolve().declaration as KSClassDeclaration
-                val (receiverParameters, receiverStatement) = processScreenParameter(receiverClass)
+            constructorParameters?.forEach { parameter ->
+                if (parameter.isAnnotatedWith<ScreenKey>()) {
+                    val ksClass = parameter.type.resolve().declaration as KSClassDeclaration
+                    val specs = ksClass.getPrimaryConstructorParameters()
+                    ksClass.simpleName.getShortName()
+                    val block = CodeBlock.of("%T(${specs.joinToString { it.name }})", ksClass.toClassName())
 
-                parameters += receiverParameters
-                statements += CodeBlock.builder()
-                    .add("%T(", receiverClass.toClassName())
-                    .add(receiverStatement)
-                    .add(")")
-                    .build()
-            } else {
-                // Just append
-                val shortName = parameter.name?.getShortName() ?: "unknown"
-                parameters.add(ParameterSpec(shortName, parameter.type.toTypeName()))
-                statements.add(CodeBlock.of(shortName))
+                    parameters.addAll(specs)
+                    statements += block
+                } else if (parameter.isAnnotatedWith<AcceptsScreenKey>()) {
+                    val ptype = parameter.type
+                    val receiverClass = ptype.resolve().declaration as KSClassDeclaration
+                    val (receiverParameters, receiverStatement) = processScreenParameters(receiverClass)
+
+                    parameters += receiverParameters
+                    statements += CodeBlock.builder()
+                        .add("%T(", receiverClass.toClassName())
+                        .add(receiverStatement)
+                        .add(")")
+                        .build()
+                } else {
+                    // Just append
+                    val shortName = parameter.name?.getShortName() ?: "unknown"
+                    parameters.add(ParameterSpec(shortName, parameter.type.toTypeName()))
+                    statements.add(CodeBlock.of(shortName))
+                }
             }
+
+            return parameters to statements.joinToCode()
         }
 
-//        val codeBlock = CodeBlock.builder()
-//            .apply {
-//                statements.forEach { statement ->
-//                    add(statement)
-//                    add(",")
-//                }
-//            }
-//            .build()
-
-        return parameters to statements.joinToCode()
-    }
-
-    private fun expandScreenKeyParameter(param: KSValueParameter): Pair<List<ParameterSpec>, CodeBlock> {
-        val ksClass = param.type.resolve().declaration as KSClassDeclaration
-        val specs = ksClass.getConstructorParameters()
-        val name = ksClass.simpleName.getShortName()
-        val block = CodeBlock.of("%T(${specs.joinToString { it.name }})", ksClass.toClassName())
-        return specs to block
-    }
-
-    private fun KSClassDeclaration.getConstructorParameters(): List<ParameterSpec> {
-        val primaryConstructor = primaryConstructor ?: return emptyList()
-        return primaryConstructor.parameters.map {
-            val builder = ParameterSpec.builder(it.name!!.getShortName(), it.type.toTypeName())
-//            if (it.hasDefault) {
-                // TODO: KSP can see that there is a default, but can't read it
-                // Potentially would just need to generate manual overloads with different
-                // parameters to handle defaults?
-//            }
-            builder.build()
+        override fun defaultHandler(node: KSNode, data: Any): FunSpec {
+            throw NotImplementedError("Was asked to visit unexpected node: $node")
         }
     }
-
-//
-//    inner class ScreenVisitor : KSDefaultVisitor<Any, FunSpec>() {
-//        override fun visitClassifierReference(reference: KSClassifierReference, data: Any): FunSpec {
-//            return super.visitClassifierReference(reference, data)
-//        }
-//
-//        override fun defaultHandler(node: KSNode, data: Any): FunSpec {
-//            TODO("Not yet implemented")
-//        }
-//    }
 }

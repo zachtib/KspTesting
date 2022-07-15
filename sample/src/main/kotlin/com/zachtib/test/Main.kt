@@ -14,6 +14,12 @@ fun main() {
             showExtraDetail = false,
             enableFanciness = true,
         ),
+        screens.navigateToOrderHistoryScreen(
+            currentUserId = 123L,
+            ordersToShow = 10,
+            showCompletedOrders = true,
+            showCancelledOrders = false,
+        ),
     ).forEach { screen: ComposeScreen ->
         println("Showing: ${screen.Content()}")
     }

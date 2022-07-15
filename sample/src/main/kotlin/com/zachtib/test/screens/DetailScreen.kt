@@ -1,7 +1,8 @@
-package com.zachtib.test
+package com.zachtib.test.screens
 
 import com.zachtib.ksp.Screen
 import com.zachtib.ksp.ScreenKey
+import com.zachtib.test.ComposeScreen
 
 data class DetailScreenKey(
     val itemId: Long,
